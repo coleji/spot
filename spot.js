@@ -1,4 +1,5 @@
 var BOARD_SIZE = 7;
+var AI_MODE = true;
 
 var gameState = new function() {
 	var self = this;
@@ -24,6 +25,7 @@ var gameState = new function() {
 		self.selectedCell.draw();
 		self.selectedCell = null;
 		this.isPlayersTurn = !this.isPlayersTurn;
+		if (AI_MODE && !this.isPlayersTurn) setTimeout(function() { doAITurn(this.board) }, 500);
 	}
 }
 
@@ -73,7 +75,8 @@ function Cell(node, row, col) {
 		this.draw();
 	};
 
-	this.doClick = function() {
+	this.doClick = function(isHuman) {
+		if (AI_MODE && !gameState.isPlayersTurn && isHuman) return;	// dont let the player be able to click red squares while computer is thinking
 		if (gameState.selectedCell) {		// Something is highlighted
 			if (self.state.highlighted) {				// Clicked the thing that is highlighted; unselect
 				self.state.highlighted = false;
@@ -112,7 +115,7 @@ function Cell(node, row, col) {
 			highlighted : false
 		};
 		self.draw();
-		node.onclick = self.doClick;
+		node.onclick = function() { self.doClick(true) };
 	}());
 }
 
@@ -145,4 +148,10 @@ function reset() {
 	gameState.board[6][6].giveToPlayer();
 	gameState.board[0][6].giveToComputer();
 	gameState.board[6][0].giveToComputer();
+}
+
+
+
+function doAITurn(board) {
+	console.log("AI Turn!")
 }
