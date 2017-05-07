@@ -1,0 +1,22 @@
+.cell {
+	height: 60px;
+	width: 60px;
+	border: 1px solid black
+}
+
+.blue {
+	background-color: #0c5a99
+}
+
+.blue-selected {
+	background-color: #128ced
+}
+
+
+.red {
+	background-color: #8c1129
+}
+
+.red-selected {
+	background-color: #d41a3e
+}
