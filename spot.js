@@ -1,6 +1,6 @@
 var BOARD_SIZE = 7;
 var AI_MODE = true;
-var AI_PAIR_DEPTH = 4;
+var AI_PAIR_DEPTH = 1;
 
 var Global = {
 	domNodes : [],
@@ -31,7 +31,7 @@ var uiProcs = {
 		});
 		document.getElementById("score").innerHTML = (function() {
 			var scores = getScores(Global.board);
-			return "<table cellpadding=5><tbody><tr><td>Dockstaff:</td><td>" + scores.P + "</td><td></td><td>Database:</td><td>" + scores.C +"</td></tr></tbody></table>";
+			return "<table cellpadding=5><tbody><tr><td>Player:</td><td>" + scores.P + "</td><td></td><td>Computer:</td><td>" + scores.C +"</td></tr></tbody></table>";
 		}());
 	},
 	doClick : function(row, col, isHuman) {
@@ -66,7 +66,7 @@ var uiProcs = {
 		if (makingAMove && AI_MODE) {
 			setTimeout(function() {
 				var aiMoveObj = doAITurn();
-				Global.board = aiMoveObj.newBoard
+				if (aiMoveObj) Global.board = aiMoveObj.newBoard
 				Global.isPlayersTurn = true;
 				uiProcs.paint();
 			}, 500)
@@ -188,21 +188,40 @@ function doAITurn() {
 		}, null);
 	}
 
+	function hashBoard(board) {
+		return board.reduce(function(hash, rowArr) {
+			return hash + rowArr.reduce(function(rowHash, owner) {
+				return rowHash + ((null == owner) ? 'N' : owner);
+			}, "");
+		}, "");
+	}
+
 	function getAllMoves(initialBoard, player) {
 		var moveList = [];
+		var hashedBoards = {};
+		var initialScore = rankBoard(initialBoard, player);
 		for (var fromRow=0; fromRow < initialBoard.length; fromRow++) {
 			for (var fromCol=0; fromCol < initialBoard[fromRow].length; fromCol++) {
 				for (var toRow=0; toRow < initialBoard.length; toRow++) {
 					for (var toCol=0; toCol < initialBoard[toRow].length; toCol++) {
 						var newBoard = applyMove(player, initialBoard, fromRow, fromCol, toRow, toCol);
-						if (null != newBoard) moveList.push({
-							fromRow : fromRow,
-							fromCol : fromCol,
-							toRow : toRow,
-							toCol : toCol,
-							newBoard : newBoard,
-							score : rankBoard(newBoard, player)
-						})
+						if (null != newBoard) {
+							var newScore = rankBoard(newBoard, player);
+							if (newScore > initialScore) {
+								var hash = hashBoard(newBoard)
+								if (undefined == hashedBoards[hash]) {
+									hashedBoards[hash] = true;
+									moveList.push({
+										fromRow : fromRow,
+										fromCol : fromCol,
+										toRow : toRow,
+										toCol : toCol,
+										newBoard : newBoard,
+										score :newScore
+									});
+								}
+							}
+						}
 					}
 				}
 			}
@@ -216,18 +235,25 @@ function doAITurn() {
 	// i.e. assume the opponent will make the move that results in the best boardScore of the board right after he moves
 	// Then get the best score from all our moves based on his presumptive move
 	// Finally take the best first move that results in the best score after out opponents presumed move and our calculated followup
-	function getBestSingleMove(initialBoard, player) {
+	function getBestMove(initialBoard, player, levels) {
 		var initialMoves = getAllMoves(initialBoard, player);
 		var opponent = (player == 'C') ? 'P' : 'C';
 		initialMoves.forEach(function(move) {
 			move.nextMove = getBestBoard(getAllMoves(move.newBoard, opponent));
-			move.mySecondMove = getBestBoard(getAllMoves(move.nextMove.newBoard, player));
+			if (null == move.nextMove) return;
+			if (levels == 0) {
+				// TODO: try optimizing by not actually computing whole boards here, just score deltas.  Is that faster?
+				move.mySecondMove = getBestBoard(getAllMoves(move.nextMove.newBoard, player));
+			} else {
+				move.mySecondMove = getBestMove(move.nextMove.newBoard, player, levels-1);
+			}
 		});
-		return initialMoves.reduce(function(best, move) {
+		var result = initialMoves.reduce(function(best, move) {
 			if (best == null) return move;
-			else return (move.mySecondMove.score > best.mySecondMove.score) ? move : best;
+			else return (!best.mySecondMove || (move.mySecondMove && (move.mySecondMove.score > best.mySecondMove.score))) ? move : best;
 		}, null);
+		return result;
 	}
 
-	return getBestSingleMove(Global.board, 'C')
+	return getBestMove(Global.board, 'C', AI_PAIR_DEPTH)
 }
