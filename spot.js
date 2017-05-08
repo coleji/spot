@@ -1,5 +1,6 @@
 var BOARD_SIZE = 7;
-var AI_MODE = false;
+var AI_MODE = true;
+var AI_PAIR_DEPTH = 4;
 
 var Global = {
 	domNodes : [],
@@ -27,11 +28,16 @@ var uiProcs = {
 					else return color;
 				}());
 			})
-		})
+		});
+		document.getElementById("score").innerHTML = (function() {
+			var scores = getScores(Global.board);
+			return "<table cellpadding=5><tbody><tr><td>Dockstaff:</td><td>" + scores.P + "</td><td></td><td>Database:</td><td>" + scores.C +"</td></tr></tbody></table>";
+		}());
 	},
 	doClick : function(row, col, isHuman) {
 		if (AI_MODE && isHuman && !Global.isPlayersTurn) return;	// Prevent player from clicking for the AI while thinking
 		var makingAMove = false;
+		var activePlayer = (Global.isPlayersTurn ? 'P' : 'C')
 		if (Global.highlightedCell.length > 0) {
 			// Something is highlighted
 			if (Global.highlightedCell[0] == row && Global.highlightedCell[1] == col) {
@@ -43,7 +49,7 @@ var uiProcs = {
 			} else if (null == Global.board[row][col]) {
 				// Clicked an empty cell; can we move there?
 				makingAMove = true;
-				var newBoard = applyMove(Global.board, Global.highlightedCell[0], Global.highlightedCell[1], row, col);
+				var newBoard = applyMove(activePlayer, Global.board, Global.highlightedCell[0], Global.highlightedCell[1], row, col);
 				if (null == newBoard) return;
 				else {
 					Global.board = newBoard;
@@ -53,8 +59,7 @@ var uiProcs = {
 			}
 		} else {
 			// just selecting a cell
-			var playerUp = (Global.isPlayersTurn ? 'P' : 'C')
-			if (Global.board[row][col] != playerUp) return;
+			if (Global.board[row][col] != activePlayer) return;
 			Global.highlightedCell = [row, col];
 		}
 		uiProcs.paint();
@@ -63,6 +68,7 @@ var uiProcs = {
 				var aiMoveObj = doAITurn();
 				Global.board = aiMoveObj.newBoard
 				Global.isPlayersTurn = true;
+				uiProcs.paint();
 			}, 500)
 		}
 	},
@@ -76,7 +82,7 @@ var uiProcs = {
 			}
 			boardHTML += "</tr>";
 		}
-		boardHTML += "</tbody></table>";
+		boardHTML += "</tbody></table><div id=score></div>";
 		boardNode.innerHTML = boardHTML;
 
 		for (var row=0; row < BOARD_SIZE; row++) {
@@ -123,12 +129,13 @@ function areCellsXApart(row, col, otherRow, otherCol, x) {
 
 // pure function
 // given an initial boardstate and a move, return the resulting boardstate
-function applyMove(initialBoard, fromRow, fromCol, toRow, toCol) {
+function applyMove(player, initialBoard, fromRow, fromCol, toRow, toCol) {
+	if (initialBoard[fromRow][fromCol] != player) return null;  //cant move that; it's not mine
 	if (initialBoard[toRow][toCol] != null) return null;  //cant move there; someone is already there
 
 	var is1Away = areCellsXApart(fromRow, fromCol, toRow, toCol, 1);
 	var is2Away = is1Away ? false : areCellsXApart(fromRow, fromCol, toRow, toCol, 2);
-	if (!is1Away && !is2Away) return null; // invalid move
+	if (!is1Away && !is2Away) return null; // invalid move (too far away)
 
 	var occupyingPlayer = initialBoard[fromRow][fromCol];
 	var opponent = (occupyingPlayer == 'P') ? 'C' : 'P';
@@ -142,11 +149,85 @@ function applyMove(initialBoard, fromRow, fromCol, toRow, toCol) {
 	})
 }
 
+function getScores(board) {
+	return board.reduce(function(agg, rowArr) {
+		var rowAgg = rowArr.reduce(function(rowAgg, owner) {
+			rowAgg[owner] = (rowAgg[owner] || 0) + 1
+			return rowAgg
+		}, {});
+		for (var player in rowAgg) {
+			agg[player] = (agg[player] || 0) + rowAgg[player];
+		}
+		return agg;
+	}, {});
+}
+
 // return an obj of {fromRow, fromCol, toRow, toCol, newBoard}
+// (i.e. not just the new board)
 // so the calling function can slowly apply the move with step by step animations
 function doAITurn() {
-	console.log("AI Turn!")
-	return {
-		newBoard : Global.board
-	};
+	// Number of forPlayer's pieces, minus number of opponent's
+	function rankBoard(board, forPlayer) {
+		var scores = getScores(board);
+		var result = 0;
+		for (var player in scores) {
+			if (player == forPlayer) result += scores[player];
+			else result -= scores[player]
+		}
+		return result;
+	}
+	// input is an array of {fromRow, fromCol, toRow, toCol, newBoard}
+	function getBestBoard(boardObjs, player) {
+		return boardObjs.reduce(function(best, boardObj) {
+			if (null == best) return Object.assign(boardObj, {score: rankBoard(boardObj.newBoard, player)});
+			else {
+				var newScore = rankBoard(boardObj.newBoard, player);
+				if (newScore > best.score) return Object.assign(boardObj, {score: newScore});
+				else return best;
+			}
+		}, null);
+	}
+
+	function getAllMoves(initialBoard, player) {
+		var moveList = [];
+		for (var fromRow=0; fromRow < initialBoard.length; fromRow++) {
+			for (var fromCol=0; fromCol < initialBoard[fromRow].length; fromCol++) {
+				for (var toRow=0; toRow < initialBoard.length; toRow++) {
+					for (var toCol=0; toCol < initialBoard[toRow].length; toCol++) {
+						var newBoard = applyMove(player, initialBoard, fromRow, fromCol, toRow, toCol);
+						if (null != newBoard) moveList.push({
+							fromRow : fromRow,
+							fromCol : fromCol,
+							toRow : toRow,
+							toCol : toCol,
+							newBoard : newBoard,
+							score : rankBoard(newBoard, player)
+						})
+					}
+				}
+			}
+		}
+		return moveList;
+	}
+
+	// The smallest meaningful decision tree is me - opp - me.
+	// Make a list of all my moves from initialBoard,
+	// then for each one assume the opponent will make the best single move for him
+	// i.e. assume the opponent will make the move that results in the best boardScore of the board right after he moves
+	// Then get the best score from all our moves based on his presumptive move
+	// Finally take the best first move that results in the best score after out opponents presumed move and our calculated followup
+	function getBestSingleMove(initialBoard, player) {
+		var initialMoves = getAllMoves(initialBoard, player);
+		var opponent = (player == 'C') ? 'P' : 'C';
+		initialMoves.forEach(function(move) {
+			move.nextMove = getBestBoard(getAllMoves(move.newBoard, opponent));
+			move.mySecondMove = getBestBoard(getAllMoves(move.nextMove.newBoard, player));
+		});
+		return initialMoves.reduce(function(best, move) {
+			if (best == null) return move;
+			else return (move.mySecondMove.score > best.mySecondMove.score) ? move : best;
+		}, null);
+	}
+
+	return getBestSingleMove(Global.board, 'C')
 }
