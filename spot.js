@@ -1,6 +1,6 @@
 var BOARD_SIZE = 7;
 var AI_MODE = true;
-var AI_PAIR_DEPTH = 1;
+var AI_PAIR_DEPTH = 2;
 
 var Global = {
 	domNodes : [],
@@ -139,27 +139,36 @@ function applyMove(player, initialBoard, fromRow, fromCol, toRow, toCol) {
 
 	var occupyingPlayer = initialBoard[fromRow][fromCol];
 	var opponent = (occupyingPlayer == 'P') ? 'C' : 'P';
-	return initialBoard.map(function(rowArr, row) {
-		return rowArr.map(function(owner, col) {
-			if (is2Away && row == fromRow && col == fromCol) return null;	// this is a jump, giving up my starting square
-			else if (row == toRow && col == toCol) return occupyingPlayer;	// square I'm moving into
-			else if (owner == opponent && areCellsXApart(toRow, toCol, row, col, 1)) return occupyingPlayer;	// surrounding opponent squares I'm taking
-			else return owner;
-		})
-	})
+	var result = [];
+	for (var row=0; row<initialBoard.length; row++) {
+		var oldRow = initialBoard[row];
+		var newRow = [];
+		for (var col=0; col<oldRow.length; col++) {
+			var owner = oldRow[col];
+			if (is2Away && row == fromRow && col == fromCol) newRow.push(null);	// this is a jump, giving up my starting square
+			else if (row == toRow && col == toCol) newRow.push(occupyingPlayer);	// square I'm moving into
+			else if (owner == opponent && areCellsXApart(toRow, toCol, row, col, 1)) newRow.push(occupyingPlayer);	// surrounding opponent squares I'm taking
+			else newRow.push(owner);
+		}
+		result.push(newRow);
+	}
+	return result;
 }
 
 function getScores(board) {
-	return board.reduce(function(agg, rowArr) {
-		var rowAgg = rowArr.reduce(function(rowAgg, owner) {
-			rowAgg[owner] = (rowAgg[owner] || 0) + 1
-			return rowAgg
-		}, {});
-		for (var player in rowAgg) {
-			agg[player] = (agg[player] || 0) + rowAgg[player];
+	var scores = {
+		P : 0,
+		C : 0
+	};
+	for (var row=0; row<board.length; row++) {
+		var rowArr = board[row];
+		for (var col=0; col<rowArr.length; col++) {
+			var cell = rowArr[col];
+			if (cell == 'P') scores.P++;
+			else if (cell == 'C') scores.C++;
 		}
-		return agg;
-	}, {});
+	}
+	return scores;
 }
 
 // return an obj of {fromRow, fromCol, toRow, toCol, newBoard}
@@ -178,22 +187,34 @@ function doAITurn() {
 	}
 	// input is an array of {fromRow, fromCol, toRow, toCol, newBoard}
 	function getBestBoard(boardObjs, player) {
-		return boardObjs.reduce(function(best, boardObj) {
-			if (null == best) return Object.assign(boardObj, {score: rankBoard(boardObj.newBoard, player)});
-			else {
+		var best = null;
+		for (var i=0; i<boardObjs.length; i++) {
+			var boardObj = boardObjs[i];
+			if (null == best) {
+				best = boardObj;
+				best.score = rankBoard(boardObj.newBoard, player);
+			} else {
 				var newScore = rankBoard(boardObj.newBoard, player);
-				if (newScore > best.score) return Object.assign(boardObj, {score: newScore});
-				else return best;
+				if (newScore > best.score) {
+					best = boardObj;
+					best.score = newScore;
+				}
 			}
-		}, null);
+
+		}
+		return best;
 	}
 
 	function hashBoard(board) {
-		return board.reduce(function(hash, rowArr) {
-			return hash + rowArr.reduce(function(rowHash, owner) {
-				return rowHash + ((null == owner) ? 'N' : owner);
-			}, "");
-		}, "");
+		var result = "";
+		for (var row=0; row<board.length; row++) {
+			var rowArr = board[row];
+			for (var col=0; col<rowArr.length; col++) {
+				var e = rowArr[col];
+				result += ((null == e) ? 'N' : e)
+			}
+		}
+		return result;
 	}
 
 	function getAllMoves(initialBoard, player) {
@@ -238,7 +259,8 @@ function doAITurn() {
 	function getBestMove(initialBoard, player, levels) {
 		var initialMoves = getAllMoves(initialBoard, player);
 		var opponent = (player == 'C') ? 'P' : 'C';
-		initialMoves.forEach(function(move) {
+		for (var i=0; i<initialMoves.length; i++) {
+			var move = initialMoves[i];
 			move.nextMove = getBestBoard(getAllMoves(move.newBoard, opponent));
 			if (null == move.nextMove) return;
 			if (levels == 0) {
@@ -247,12 +269,14 @@ function doAITurn() {
 			} else {
 				move.mySecondMove = getBestMove(move.nextMove.newBoard, player, levels-1);
 			}
-		});
-		var result = initialMoves.reduce(function(best, move) {
-			if (best == null) return move;
-			else return (!best.mySecondMove || (move.mySecondMove && (move.mySecondMove.score > best.mySecondMove.score))) ? move : best;
-		}, null);
-		return result;
+		}
+		var best = null;
+		for (var i=0; i<initialMoves.length; i++) {
+			var move = initialMoves[i];
+			if (best == null) best = move;
+			else if (!best.mySecondMove || (move.mySecondMove && (move.mySecondMove.score > best.mySecondMove.score))) best = move;
+		}
+		return best;
 	}
 
 	return getBestMove(Global.board, 'C', AI_PAIR_DEPTH)
