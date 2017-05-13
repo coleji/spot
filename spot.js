@@ -185,6 +185,7 @@ function doAITurn() {
 		}
 		return result;
 	}
+
 	// input is an array of {fromRow, fromCol, toRow, toCol, newBoard}
 	function getBestBoard(boardObjs, player) {
 		var best = null;
@@ -205,6 +206,9 @@ function doAITurn() {
 		return best;
 	}
 
+	// Represent each cell as a character P, C, or N for player-owned, computer-owned or null owner respectively
+	// represent each row as a string of the seven cell characters left to right
+	// return a string of all rows starting from teh top row
 	function hashBoard(board) {
 		var result = "";
 		for (var row=0; row<board.length; row++) {
@@ -217,6 +221,9 @@ function doAITurn() {
 		return result;
 	}
 
+	// given the initial board and the player who's turn it is,
+	// return an array of objects {fromRow, fromCol, toRow, toCol, newBoard}
+	// representing all possible moves
 	function getAllMoves(initialBoard, player) {
 		var moveList = [];
 		var hashedBoards = {};
@@ -250,15 +257,18 @@ function doAITurn() {
 		return moveList;
 	}
 
-	// The smallest meaningful decision tree is me - opp - me.
 	// Make a list of all my moves from initialBoard,
 	// then for each one assume the opponent will make the best single move for him
 	// i.e. assume the opponent will make the move that results in the best boardScore of the board right after he moves
 	// Then get the best score from all our moves based on his presumptive move
 	// Finally take the best first move that results in the best score after out opponents presumed move and our calculated followup
+	// Call recursively, the lowest level of recursion being me - opp - me
+	// i.e. two calls for a sequence me - opp - (me - opp - me)
 	function getBestMove(initialBoard, player, levels) {
 		var initialMoves = getAllMoves(initialBoard, player);
 		var opponent = (player == 'C') ? 'P' : 'C';
+		// for each move, determine the opponent's best next move (only looking one move ahead)
+		// then determine our best single move given that opponent move and attach that score as the ultimate score of the initial move
 		for (var i=0; i<initialMoves.length; i++) {
 			var move = initialMoves[i];
 			move.nextMove = getBestBoard(getAllMoves(move.newBoard, opponent));
@@ -270,11 +280,22 @@ function doAITurn() {
 				move.mySecondMove = getBestMove(move.nextMove.newBoard, player, levels-1);
 			}
 		}
+
+		// Get the best initial move based on the ultimate final score resulting from that move
+		// Inject some randomness while we're at it
 		var best = null;
 		for (var i=0; i<initialMoves.length; i++) {
 			var move = initialMoves[i];
 			if (best == null) best = move;
-			else if (!best.mySecondMove || (move.mySecondMove && (move.mySecondMove.score > best.mySecondMove.score))) best = move;
+			if (!best.mySecondMove) {
+				best = move
+			} else if (!move.mySecondMove) {
+				// do nothing
+			} else if (move.mySecondMove.score > best.mySecondMove.score && Math.random() < 0.8) {
+				best = move;
+			} else if (move.mySecondMove.score == best.mySecondMove.score && Math.random() < 0.5) {
+				best = move;
+			}
 		}
 		return best;
 	}
